@@ -2,7 +2,12 @@
 
 本仓库公开，可匿名下载，无需在目标服务器登录 GitHub 或配置 Token。
 
-补丁从已有原生 PP 适配版 `89d93a2ea62030f6890b5bbe8f902c5b92945c8d` 更新到可靠性修复版 `02ffb6943924d1ebd78e31dc3a608dd4af3de271`。共修改 14 个 LMCache Python 文件，不修改 vLLM、Ascend 插件或原生扩展源码。上游 LMCache 代码许可证见 `LMCache-LICENSE`。
+补丁更新到可靠性修复版 `02ffb6943924d1ebd78e31dc3a608dd4af3de271`。脚本自动选择以下两种已验证基线对应的补丁：
+
+- 已有原生 PP 适配版 `89d93a2ea62030f6890b5bbe8f902c5b92945c8d`。
+- 上述版本已应用旧 STORE 完成通知修复 `2570c2c2fd2d893c313ebf4a01c14dc88a9ce4fe`，包括只通过终端应用该修复、Git HEAD 尚未变化的情况。
+
+两种补丁均修改 14 个 LMCache Python 文件，不修改 vLLM、Ascend 插件、setup.py 或原生扩展源码。上游 LMCache 代码许可证见 `LMCache-LICENSE`。
 
 ## 应用
 
@@ -17,6 +22,8 @@ python lmcache-fix-public/apply_patch.py
 ```
 
 脚本自动定位当前 Python 的 LMCache，打印目标路径，先检查兼容性，再备份受影响文件并应用补丁、检查语法。`--check` 不修改目标；检查失败时不强行覆盖。
+
+如果已经克隆本仓库，先在交付目录执行 `GIT_TERMINAL_PROMPT=0 git -c credential.helper= -c http.extraHeader= pull --ff-only` 更新。旧交付在已经含有 STORE 修复时会在 connector.py 与 metadata.py 两处冲突；新版会选择 `2570c2c-to-02ffb69` 补丁，不重复应用旧修复。选择依据为完整补丁的预检查结果，不只看 Git HEAD。
 
 如果服务通过专用 `PYTHONPATH` 或加载器运行，当前终端须使用同一环境；也可通过 `--root /实际包含lmcache目录的根目录` 显式指定目标。必须确认该目录确实被服务加载。
 
@@ -43,12 +50,12 @@ unset KS_LMCACHE_L1_RECHECK_ON_STATUS
 
 ## 回退
 
-在补丁目标根目录执行，使用交付补丁的实际绝对路径：
+在补丁目标根目录执行，使用应用时打印的备份目录中的 `applied.patch`：
 
 ```bash
 export GIT_CEILING_DIRECTORIES="$(dirname "$PWD")"
-git -c core.autocrlf=false apply --reverse --check /实际路径/lmcache-fix-public/lmcache-reliability-89d93a2-to-02ffb69.patch && \
-git -c core.autocrlf=false apply --reverse /实际路径/lmcache-fix-public/lmcache-reliability-89d93a2-to-02ffb69.patch
+git -c core.autocrlf=false apply --reverse --check /实际备份目录/applied.patch && \
+git -c core.autocrlf=false apply --reverse /实际备份目录/applied.patch
 ```
 
 同时恢复应用前的启动配置并统一重启相关进程。原文件备份位于脚本打印的 `backup-before-02ffb69-*` 目录，附有 `backup.json`。回退检查失败时保留后续修改，不强行覆盖。

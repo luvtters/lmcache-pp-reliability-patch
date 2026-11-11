@@ -8,6 +8,7 @@ import os
 from pathlib import Path
 import shutil
 import subprocess
+import sys
 import tempfile
 
 
@@ -23,15 +24,34 @@ def main():
         root = Path(spec.origin).resolve().parent.parent
     else:
         root = args.root.resolve()
-    patch = Path(__file__).resolve().with_name("lmcache-reliability-89d93a2-to-02ffb69.patch")
-    if not root.is_dir() or not patch.is_file():
-        parser.error("The target directory or delivery patch does not exist")
+    delivery = Path(__file__).resolve().parent
+    if not root.is_dir():
+        parser.error("The target directory does not exist")
     print("LMCache target:", root / "lmcache", flush=True)
-    print("Required base: native PP 89d93a2; target: 02ffb69", flush=True)
+    print("Supported bases: native PP 89d93a2, or delayed STORE fix 2570c2c; target: 02ffb69", flush=True)
     git = ["git", "-c", "core.autocrlf=false", "-C", str(root), "apply"]
     env = os.environ.copy()
     env["GIT_CEILING_DIRECTORIES"] = str(root.parent)
-    subprocess.run(git + ["--check", str(patch)], check=True, env=env)
+    failures = []
+    for name in (
+        "lmcache-reliability-89d93a2-to-02ffb69.patch",
+        "lmcache-reliability-2570c2c-to-02ffb69.patch",
+    ):
+        patch = delivery / name
+        if not patch.is_file():
+            parser.error("Delivery is incomplete; update this clone before applying")
+        checked = subprocess.run(
+            git + ["--check", str(patch)], env=env, capture_output=True, text=True,
+        )
+        if checked.returncode == 0:
+            break
+        failures.append((name, checked.stderr))
+    else:
+        print("NO FILES CHANGED: neither supported patch matches this installation", file=sys.stderr)
+        for name, error in failures:
+            print(name + ":\n" + error, file=sys.stderr)
+        raise SystemExit(1)
+    print("Selected patch:", patch.name, flush=True)
     stat = subprocess.check_output(git + ["--numstat", str(patch)], text=True, env=env)
     paths = [line.split("\t", 2)[2] for line in stat.splitlines()]
     if len(paths) != 14 or any(
@@ -52,9 +72,10 @@ def main():
             destination.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(source, destination)
     (backup / "backup.json").write_text(
-        json.dumps({"target_root": str(root), "originally_present": original}, indent=2),
+        json.dumps({"target_root": str(root), "patch_file": patch.name, "originally_present": original}, indent=2),
         encoding="utf-8",
     )
+    shutil.copy2(patch, backup / "applied.patch")
     print("Backup:", backup, flush=True)
     subprocess.run(git + [str(patch)], check=True, env=env)
     for name in paths:
